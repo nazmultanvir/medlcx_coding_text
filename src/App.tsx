@@ -7,27 +7,28 @@ function App() {
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>('idle');
   const [showCaptcha, setShowCaptcha] = useState(false);
 
-  const handleStartVerification = () => {
+  const startVerification = () => {
     setVerificationStatus('verifying');
     setShowCaptcha(true);
   };
 
-  const handleVerificationComplete = (success: boolean) => {
+  const onVerificationComplete = (success: boolean) => {
     setVerificationStatus(success ? 'success' : 'failed');
     setShowCaptcha(false);
 
-    // Auto reset after 5 seconds to give user time to read the message
+    // Reset after a few seconds so user can see the result
     setTimeout(() => {
       setVerificationStatus('idle');
-    }, 5000);
+    }, 4500);
   };
 
+  // Get friendly status message based on current state  
   const getStatusMessage = () => {
     switch (verificationStatus) {
       case 'success':
-        return 'Awesome! You passed the verification.';
+        return 'Nice work! You\'re all verified.';
       case 'failed':
-        return 'Oops! That didn\'t work. Want to give it another shot?';
+        return 'Hmm, that didn\'t quite work out. Give it another try?';
       default:
         return '';
     }
@@ -36,7 +37,7 @@ function App() {
   if (showCaptcha) {
     return (
       <CaptchaVerification
-        onComplete={handleVerificationComplete}
+        onComplete={onVerificationComplete}
       />
     );
   }
@@ -53,7 +54,7 @@ function App() {
         </p>
 
         <button
-          onClick={handleStartVerification}
+          onClick={startVerification}
           disabled={verificationStatus === 'verifying'}
           className={`
             w-full py-3 px-6 rounded-lg font-medium text-white transition-all duration-200

@@ -1,4 +1,4 @@
-// Core types for the verification system
+// Types for our CAPTCHA system
 export type ShapeType = "triangle" | "square" | "circle";
 export type ColorTint = "red" | "green" | "blue";
 
@@ -27,9 +27,9 @@ export interface GridSector {
   jitter?: { x: number; y: number };
 }
 
-// Create sample verification challenges (for traditional captcha)
-export const createSampleChallenge = (): VerificationChallenge => {
-  const challenges: VerificationChallenge[] = [
+// Generate traditional CAPTCHA challenges
+export const createTraditionalChallenge = (): VerificationChallenge => {
+  const challengeOptions: VerificationChallenge[] = [
     {
       id: 'traffic-lights',
       type: 'object_identification',
@@ -38,8 +38,8 @@ export const createSampleChallenge = (): VerificationChallenge => {
       difficulty: 'easy'
     },
     {
-      id: 'vehicles',
-      type: 'object_identification', 
+      id: 'vehicles', 
+      type: 'object_identification',
       instruction: 'Select all squares with cars',
       targetObjects: ['car'],
       difficulty: 'medium'
@@ -53,73 +53,75 @@ export const createSampleChallenge = (): VerificationChallenge => {
     }
   ];
   
-  return challenges[Math.floor(Math.random() * challenges.length)];
+  return challengeOptions[Math.floor(Math.random() * challengeOptions.length)];
 };
 
-// Validate traditional captcha responses
-export const validateCaptchaResponse = (
+// Simple validation for CAPTCHA responses
+export const validateResponse = (
   _challenge: VerificationChallenge,
   response: UserResponse
 ): boolean => {
-  // Basic validation - in production this would check against correct answers
+  // Basic check - real implementation would verify against actual answers
   return response.selectedItems !== undefined && response.selectedItems.length > 0;
 };
 
-// Calculate performance score based on speed and accuracy
-export const calculatePerformanceScore = (
-  responseTimeMs: number,
-  isCorrect: boolean
+// Calculate a basic score based on response time and correctness
+export const calculateScore = (
+  timeMs: number,
+  correct: boolean
 ): number => {
-  const baseScore = isCorrect ? 100 : 0;
-  const speedBonus = Math.max(0, 50 - (responseTimeMs / 1000));
-  return Math.round(baseScore + speedBonus);
-};
-
-// Generate unique session identifier
-export const createSessionId = (): string => {
-  const timestamp = Date.now();
-  const randomSuffix = Math.random().toString(36).substr(2, 9);
-  return `session_${timestamp}_${randomSuffix}`;
-};
-
-// Create secure grid layout for shape-based verification
-export const generateShapeGrid = (targetShape: ShapeType, targetTint: ColorTint): GridSector[] => {
-  const allShapes: ShapeType[] = ["triangle", "square", "circle"];
-  const allTints: ColorTint[] = ["red", "green", "blue"];
-  const sectors: GridSector[] = [];
+  if (!correct) return 0;
   
-  // Ensure 2-4 target shapes for better user experience
+  const base = 100;
+  const timeBonus = Math.max(0, 40 - (timeMs / 1000)); // Slight time bonus for speed
+  return Math.round(base + timeBonus);
+};
+
+// Generate session ID for tracking
+export const generateSessionId = (): string => {
+  const now = Date.now();
+  const rand = Math.random().toString(36).substring(2, 8);
+  return `sess_${now}_${rand}`;
+};
+
+// Create a grid of shapes for our custom CAPTCHA
+export const createShapeGrid = (targetShape: ShapeType, targetTint: ColorTint): GridSector[] => {
+  const shapes: ShapeType[] = ["triangle", "square", "circle"];
+  const tints: ColorTint[] = ["red", "green", "blue"];
+  const grid: GridSector[] = [];
+  
+  // We want 2-4 matching shapes for a good challenge
   const targetCount = Math.floor(Math.random() * 3) + 2;
-  let targetsPlaced = 0;
+  let placedTargets = 0;
   
   for (let i = 0; i < 16; i++) {
-    const shouldPlaceTarget = targetsPlaced < targetCount && Math.random() < 0.3;
-    const hasShape = shouldPlaceTarget || Math.random() < 0.6;
+    const needsTarget = placedTargets < targetCount && Math.random() < 0.35;
+    const shouldHaveShape = needsTarget || Math.random() < 0.65;
     
-    if (hasShape) {
-      let shape: ShapeType;
-      let tint: ColorTint;
+    if (shouldHaveShape) {
+      let shapeType: ShapeType;
+      let shapeTint: ColorTint;
       
-      if (shouldPlaceTarget) {
-        shape = targetShape;
-        tint = targetTint;
-        targetsPlaced++;
+      if (needsTarget) {
+        shapeType = targetShape;
+        shapeTint = targetTint;
+        placedTargets++;
       } else {
-        // Create decoy shapes
-        shape = allShapes[Math.floor(Math.random() * allShapes.length)];
-        tint = allTints[Math.floor(Math.random() * allTints.length)];
+        // Add some decoy shapes
+        shapeType = shapes[Math.floor(Math.random() * shapes.length)];
+        shapeTint = tints[Math.floor(Math.random() * tints.length)];
         
-        // Avoid accidental target matches
-        if (shape === targetShape && tint === targetTint) {
-          tint = allTints.find(t => t !== targetTint) || "red";
+        // Make sure we don't accidentally create a target match
+        if (shapeType === targetShape && shapeTint === targetTint) {
+          shapeTint = tints.find((t: ColorTint) => t !== targetTint) || "red";
         }
       }
       
-      sectors.push({
+      grid.push({
         id: i,
         hasShape: true,
-        shape,
-        tint,
+        shape: shapeType,
+        tint: shapeTint,
         rotation: Math.random() * 360,
         jitter: {
           x: (Math.random() - 0.5) * 8,
@@ -127,21 +129,21 @@ export const generateShapeGrid = (targetShape: ShapeType, targetTint: ColorTint)
         }
       });
     } else {
-      sectors.push({
+      grid.push({
         id: i,
         hasShape: false,
-        shape: "triangle", // placeholder
+        shape: "triangle", // just a placeholder
       });
     }
   }
   
-  return sectors;
+  return grid;
 };
 
-// Validate user selections against target criteria
-export const validateShapeSelection = (
+// Check if user selections match the target
+export const checkShapeSelection = (
   sectors: GridSector[],
-  selectedIds: number[],
+  selected: number[],
   targetShape: ShapeType,
   targetTint: ColorTint
 ): boolean => {
@@ -154,28 +156,28 @@ export const validateShapeSelection = (
     .map(sector => sector.id);
   
   return (
-    correctIds.length === selectedIds.length &&
-    correctIds.every(id => selectedIds.includes(id)) &&
-    selectedIds.every(id => correctIds.includes(id))
+    correctIds.length === selected.length &&
+    correctIds.every(id => selected.includes(id)) &&
+    selected.every(id => correctIds.includes(id))
   );
 };
 
-// Generate visual noise to prevent automated analysis
-export const createAntiAutomationNoise = (density: number = 10): Array<{ x: number; y: number }> => {
-  return Array.from({ length: density }, () => ({
+// Add some visual clutter to confuse bots
+export const generateVisualNoise = (amount: number = 8): Array<{ x: number; y: number }> => {
+  return Array.from({ length: amount }, () => ({
     x: Math.random() * 100,
     y: Math.random() * 100
   }));
 };
 
-// Convert square coordinates for responsive positioning
-export const calculateResponsivePosition = (
-  squarePos: { x: number; y: number },
-  videoWidth: number = 640,
-  videoHeight: number = 480
-): { leftPercent: number; topPercent: number } => {
+// Helper for responsive positioning
+export const getResponsivePos = (
+  pos: { x: number; y: number },
+  videoW: number = 640,
+  videoH: number = 480
+): { leftPct: number; topPct: number } => {
   return {
-    leftPercent: (squarePos.x / videoWidth) * 100,
-    topPercent: (squarePos.y / videoHeight) * 100
+    leftPct: (pos.x / videoW) * 100,
+    topPct: (pos.y / videoH) * 100
   };
 };

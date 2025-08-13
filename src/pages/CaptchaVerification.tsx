@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ShapeGrid from '../components/ShapeGrid';
+import { createShapeGrid, checkShapeSelection } from '../utils/verificationHelpers';
 
 type VerificationStep = "camera" | "selection" | "results";
 type ShapeType = "triangle" | "square" | "circle";
@@ -23,15 +24,15 @@ interface Position {
     y: number;
 }
 
-// Constrains square position within video bounds
-const keepSquareInBounds = (
-    position: Position,
+// Keep the tracking square within camera bounds
+const constrainSquarePosition = (
+    pos: Position,
     videoWidth: number,
     videoHeight: number,
     squareSize: number
 ): { left: string; top: string } => {
-    const x = Math.max(0, Math.min(videoWidth - squareSize, position.x));
-    const y = Math.max(0, Math.min(videoHeight - squareSize, position.y));
+    const x = Math.max(0, Math.min(videoWidth - squareSize, pos.x));
+    const y = Math.max(0, Math.min(videoHeight - squareSize, pos.y));
 
     return {
         left: `${x}px`,
@@ -60,6 +61,47 @@ const CaptchaVerification: React.FC<CaptchaVerificationProps> = ({ onComplete })
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const movementTimer = useRef<NodeJS.Timeout | null>(null);
+
+    const buildShapeChallenge = useCallback(() => {
+        // Pick random target before generating grid
+        const shapes: ShapeType[] = ["triangle", "square", "circle"];
+        const tints: ColorTint[] = ["red", "green", "blue"];
+        const newTargetShape = shapes[Math.floor(Math.random() * shapes.length)];
+        const newTargetTint = tints[Math.floor(Math.random() * tints.length)];
+
+        setTargetShape(newTargetShape);
+        setTargetTint(newTargetTint);
+
+        const newGrid = createShapeGrid(newTargetShape, newTargetTint);
+        setGridSectors(newGrid);
+        setSelectedSectors([]);
+    }, []);
+
+    const checkUserSelection = useCallback(() => {
+        setIsValidating(true);
+
+        const isCorrect = checkShapeSelection(
+            gridSectors,
+            selectedSectors,
+            targetShape,
+            targetTint
+        );
+
+        setTimeout(() => {
+            const success = isCorrect;
+            setResult(success ? "PASS" : "FAIL");
+            setIsValidating(false);
+
+            // Return result to parent component if callback provided
+            if (onComplete) {
+                setTimeout(() => {
+                    onComplete(success);
+                }, 600);
+            } else {
+                setCurrentStep("results");
+            }
+        }, 1200);
+    }, [gridSectors, targetShape, targetTint, selectedSectors, onComplete]);
 
     const requestCameraAccess = useCallback(async () => {
         try {
@@ -132,123 +174,10 @@ const CaptchaVerification: React.FC<CaptchaVerificationProps> = ({ onComplete })
             stream.getTracks().forEach(track => track.stop());
         }
 
-        // Generate challenge and proceed
-        createShapeChallenge();
+        // Generate challenge and move to next step
+        buildShapeChallenge();
         setCurrentStep("selection");
-    }, [squarePosition]);
-
-    const createShapeChallenge = useCallback(() => {
-        const allShapes: ShapeType[] = ["triangle", "square", "circle"];
-        const allTints: ColorTint[] = ["red", "green", "blue"];
-        const newSectors: GridSector[] = [];
-
-        // Create 4x4 grid first
-        for (let i = 0; i < 16; i++) {
-            const hasShape = Math.random() < 0.6; // Slightly higher chance for shapes
-
-            if (hasShape) {
-                const shape = allShapes[Math.floor(Math.random() * allShapes.length)];
-                const tint = allTints[Math.floor(Math.random() * allTints.length)];
-
-                newSectors.push({
-                    id: i,
-                    hasShape: true,
-                    shape,
-                    tint,
-                    rotation: Math.random() * 360,
-                    jitter: {
-                        x: (Math.random() - 0.5) * 10,
-                        y: (Math.random() - 0.5) * 10
-                    }
-                });
-            } else {
-                newSectors.push({
-                    id: i,
-                    hasShape: false,
-                    shape: "triangle", // placeholder
-                });
-            }
-        }
-
-        // Get all unique shape/tint combinations that exist in the grid
-        const availableCombinations = newSectors
-            .filter(sector => sector.hasShape && sector.tint)
-            .map(sector => ({ shape: sector.shape, tint: sector.tint! }))
-            .filter((combo, index, self) =>
-                self.findIndex(c => c.shape === combo.shape && c.tint === combo.tint) === index
-            );
-
-        // If no shapes exist, create at least one
-        if (availableCombinations.length === 0) {
-            const fallbackShape = allShapes[Math.floor(Math.random() * allShapes.length)];
-            const fallbackTint = allTints[Math.floor(Math.random() * allTints.length)];
-
-            // Replace a random empty sector with our fallback shape
-            const emptySectors = newSectors.filter(sector => !sector.hasShape);
-            if (emptySectors.length > 0) {
-                const randomEmpty = emptySectors[Math.floor(Math.random() * emptySectors.length)];
-                const sectorIndex = newSectors.findIndex(s => s.id === randomEmpty.id);
-
-                newSectors[sectorIndex] = {
-                    id: randomEmpty.id,
-                    hasShape: true,
-                    shape: fallbackShape,
-                    tint: fallbackTint,
-                    rotation: Math.random() * 360,
-                    jitter: {
-                        x: (Math.random() - 0.5) * 10,
-                        y: (Math.random() - 0.5) * 10
-                    }
-                };
-
-                availableCombinations.push({ shape: fallbackShape, tint: fallbackTint });
-            }
-        }
-
-        // Pick target from available combinations
-        const targetCombo = availableCombinations[Math.floor(Math.random() * availableCombinations.length)];
-        setTargetShape(targetCombo.shape);
-        setTargetTint(targetCombo.tint);
-
-        setGridSectors(newSectors);
-        setSelectedSectors([]);
-    }, []);
-
-    const validateUserSelection = useCallback(() => {
-        setIsValidating(true);
-
-        // Find correct sectors
-        const correctSectors = gridSectors
-            .filter(sector =>
-                sector.hasShape &&
-                sector.shape === targetShape &&
-                sector.tint === targetTint
-            )
-            .map(sector => sector.id);
-
-        // Check if selection matches
-        const isCorrect =
-            correctSectors.length === selectedSectors.length &&
-            correctSectors.every(id => selectedSectors.includes(id)) &&
-            selectedSectors.every(id => correctSectors.includes(id));
-
-        setTimeout(() => {
-            const success = isCorrect;
-            setResult(success ? "PASS" : "FAIL");
-            setIsValidating(false);
-
-            // Call the completion callback immediately if provided
-            if (onComplete) {
-                // Small delay to show the validation feedback, then return to App
-                setTimeout(() => {
-                    onComplete(success);
-                }, 500);
-            } else {
-                // Only show results step if no callback is provided (standalone mode)
-                setCurrentStep("results");
-            }
-        }, 1000);
-    }, [gridSectors, targetShape, targetTint, selectedSectors, onComplete]);
+    }, [squarePosition, buildShapeChallenge]);
 
     const restartVerification = useCallback(() => {
         if (attemptsMade >= 3) {
@@ -341,7 +270,7 @@ const CaptchaVerification: React.FC<CaptchaVerificationProps> = ({ onComplete })
                         style={{
                             width: '200px',
                             height: '200px',
-                            ...keepSquareInBounds(squarePosition, 640, 480, 200),
+                            ...constrainSquarePosition(squarePosition, 640, 480, 200),
                             background: 'rgba(255,255,255,0.25)',
                             backdropFilter: 'blur(8px)',
                             WebkitBackdropFilter: 'blur(8px)',
@@ -385,7 +314,7 @@ const CaptchaVerification: React.FC<CaptchaVerificationProps> = ({ onComplete })
                         style={{
                             width: '200px',
                             height: '200px',
-                            ...keepSquareInBounds(lockedPosition, 640, 480, 200),
+                            ...constrainSquarePosition(lockedPosition, 640, 480, 200),
                             background: 'rgba(255,255,255,0.25)',
                             backdropFilter: 'blur(8px)',
                             WebkitBackdropFilter: 'blur(8px)',
@@ -403,7 +332,7 @@ const CaptchaVerification: React.FC<CaptchaVerificationProps> = ({ onComplete })
 
             <div className="mt-6">
                 <button
-                    onClick={validateUserSelection}
+                    onClick={checkUserSelection}
                     disabled={isValidating || selectedSectors.length === 0}
                     className="bg-brand-gold uppercase hover:bg-yellow-600 text-white py-1 px-6 transition-colors text-lg disabled:bg-gray-400"
                 >
